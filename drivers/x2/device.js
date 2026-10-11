@@ -2103,6 +2103,7 @@ class SofaBatonDevice extends Homey.Device {
       onActivityChange:  (id, name) => this.handleActivityChange(id, name),
       onButtonPress:     e          => this.handleButtonPress(e),
       onConnectionChange: connected => {
+        if (this._deleted) return;
         if (connected) this.setAvailable();
         else if (!this._hubPausedUntil || Date.now() >= this._hubPausedUntil) this.setUnavailable('SofaBaton disconnected');
       },
@@ -2196,25 +2197,27 @@ class SofaBatonDevice extends Homey.Device {
         this.homey.app.updateHubsCache?.();
         // Poll for disconnection and schedule reconnect
         const checkInterval = setInterval(() => {
+          if (this._deleted) { clearInterval(checkInterval); return; }
           if (!this.sofaBaton?.connected) {
             clearInterval(checkInterval);
             this.homey.log('SOFABATON: Disconnected — reconnecting in 15s');
             if (!this._hubPausedUntil || Date.now() >= this._hubPausedUntil) {
               this.setUnavailable('SofaBaton disconnected — reconnecting');
               this.sofaBaton?.close().catch(() => {});
-              setTimeout(() => this._rebuildAndConnect(), 15000);
+              setTimeout(() => { if (!this._deleted) this._rebuildAndConnect(); }, 15000);
             }
           }
         }, 10000);
         this._connCheckInterval = checkInterval;
       })
       .catch(err => {
+        if (this._deleted) return;
         const delay = attempt < 20 ? 2000 : Math.min(30000, (attempt - 19) * 5000);
         this.homey.error(`SofaBaton connect attempt ${attempt} failed: ${err.message} — retry in ${delay / 1000}s`);
         this.setUnavailable(`Connecting… (attempt ${attempt})`);
         // Close the client so it releases its TCP server port before the next attempt
         this.sofaBaton.close().catch(() => {});
-        setTimeout(() => this._connectWithRetry(attempt + 1), delay);
+        setTimeout(() => { if (!this._deleted) this._connectWithRetry(attempt + 1); }, delay);
       });
   }
 
@@ -2266,6 +2269,7 @@ class SofaBatonDevice extends Homey.Device {
       onActivityChange:  (id, name) => this.handleActivityChange(id, name),
       onButtonPress:     e          => this.handleButtonPress(e),
       onConnectionChange: connected => {
+        if (this._deleted) return;
         if (connected) this.setAvailable();
         else if (!this._hubPausedUntil || Date.now() >= this._hubPausedUntil) this.setUnavailable('SofaBaton disconnected');
       },
@@ -3248,6 +3252,8 @@ class SofaBatonDevice extends Homey.Device {
   }
 
   async onDeleted() {
+    this._deleted = true;
+    if (this._connCheckInterval) { clearInterval(this._connCheckInterval); this._connCheckInterval = null; }
     try { this._httpServer?.close(); } catch {}
     await this.sofaBaton?.close();
   }
