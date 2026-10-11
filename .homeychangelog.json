@@ -37,5 +37,11 @@
   },
   "0.2.120": {
     "en": "App store cert fixes: driver icon (vector SVG), pairing view shows clear success/failure messages, Manage page token uses sessionStorage"
+  },
+  "0.2.121": {
+    "en": "Fix Homey App store standards for appid,readme,and logo."
+  },
+  "0.2.122": {
+    "en": "Fix crash when device is deleted while a reconnect timer is running"
   }
 }
