@@ -130,6 +130,11 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
         args.device._callbackPort,
         transport,
       );
+      const cfgs = args.device.getStoreValue('wifi_configs') || [];
+      const idx = cfgs.findIndex(c => c.name.toLowerCase() === deviceName.toLowerCase());
+      if (idx !== -1) cfgs[idx] = { name: result.name, commands: commandNames };
+      else cfgs.push({ name: result.name, commands: commandNames });
+      await args.device.setStoreValue('wifi_configs', cfgs);
       return { hub_device_id: result.deviceId, device_name: result.name };
     });
 
@@ -160,10 +165,14 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
 
       let commands;
       if (sbDeviceId && sbDeviceId !== ANY_ID) {
-        const cmdMap = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId));
+        const cmdMap = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId))
+                    || device.sofaBaton._wifiDeviceCommands?.get(Number(sbDeviceId));
         commands = cmdMap ? [...cmdMap.values()] : [];
       } else {
-        commands = [...device.sofaBaton.commands.values()];
+        const wifiCmds = device.sofaBaton._wifiDeviceCommands
+          ? [...device.sofaBaton._wifiDeviceCommands.values()].flatMap(m => [...m.values()])
+          : [];
+        commands = [...device.sofaBaton.commands.values(), ...wifiCmds];
       }
 
       return [

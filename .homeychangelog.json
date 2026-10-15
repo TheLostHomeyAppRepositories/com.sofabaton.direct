@@ -43,5 +43,11 @@
   },
   "0.2.122": {
     "en": "Fix crash when device is deleted while a reconnect timer is running"
+  },
+  "0.2.123": {
+    "en": "Fixed app crash after deleting device."
+  },
+  "0.2.127": {
+    "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   }
 }

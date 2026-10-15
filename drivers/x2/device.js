@@ -2191,6 +2191,7 @@ class SofaBatonDevice extends Homey.Device {
     }
     this.sofaBaton.connectAndCatalog()
       .then(async () => {
+        if (this._deleted) return;
         this.setAvailable();
         this.setStoreValue('catalog', this.getCatalog()).catch(() => {});
         try { await this._restoreWifiDevices(); } catch(rErr) { this.homey.error('_restoreWifiDevices threw:', rErr.message); }
@@ -2879,6 +2880,15 @@ class SofaBatonDevice extends Homey.Device {
         try {
           if (!this.sofaBaton?.connected) throw new Error('Hub not connected');
           await this.sofaBaton.deleteWifiDevice(hubId);
+          // Also clean up local records so the device isn't re-created on restart
+          const hubDev = this.sofaBaton?.devices?.get(hubId);
+          if (hubDev) {
+            const cfgs = this.getStoreValue('wifi_configs') || [];
+            const idx = cfgs.findIndex(c => c.name.toLowerCase() === hubDev.name.toLowerCase());
+            if (idx !== -1) { cfgs.splice(idx, 1); await this.setStoreValue('wifi_configs', cfgs); }
+            this.sofaBaton._wifiCommandsByName?.delete(hubDev.name.toLowerCase());
+            this.sofaBaton._wifiDeviceCommands?.delete(hubId);
+          }
           sendJson(res, { ok: true });
         } catch(e) { sendJson(res, { ok: false, error: e.message }); }
         return;
@@ -3184,7 +3194,12 @@ class SofaBatonDevice extends Homey.Device {
         activity_id: this.sofaBaton.currentActivityId,
       },
       { device_id: event.device_id, key_id: event.key_id }  // state for run listener
-    ).catch(e => this.homey.error(`Button trigger error: ${e.message}`));
+    ).then(() => {
+      this.homey.log(`Button trigger fired: dev=${event.device_id} key=${event.key_id} btn="${button}"`);
+    }).catch(e => {
+      this.homey.error(`Button trigger error: ${e.message}`);
+      this._dlog(`TRIGGER ERROR: ${e.message}`);
+    });
   }
 
   _execBinding(b, callback) {
@@ -3272,7 +3287,7 @@ class SofaBatonDevice extends Homey.Device {
       password: newSettings.mqtt_password,
     };
     await this.sofaBaton.connectAndCatalog();
-    this.setAvailable();
+    if (!this._deleted) this.setAvailable();
   }
 }
 
