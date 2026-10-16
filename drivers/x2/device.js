@@ -3177,7 +3177,7 @@ class SofaBatonDevice extends Homey.Device {
         if (parts.length >= 6 && parts[2] === 'wf') {
           // Name-based URL — stable across app restarts regardless of hub-assigned device ID
           const safeName = decodeURIComponent(parts[3]).toLowerCase();
-          const byName = this.sofaBaton?._wifiCommandsByName?.get(safeName);
+          let byName = this.sofaBaton?._wifiCommandsByName?.get(safeName);
           deviceId  = byName?.deviceId ?? -1;
           cmdIndex  = Number(parts[4]);
           pressType = parts[5];

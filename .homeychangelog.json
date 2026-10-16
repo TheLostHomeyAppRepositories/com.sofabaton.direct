@@ -50,6 +50,9 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
+  "0.2.149": {
+    "en": "Fix crash (TypeError: Assignment to constant variable) when a WiFi device button fires via the name-based callback URL and the device is not yet locally registered"
+  },
   "0.2.148": {
     "en": "Fix WiFi device buttons missing from Flow trigger dropdown; fix WiFi button presses not firing Flows; fix Hub Device List delete buttons (confirmation, status feedback, correct cleanup of duplicate entries); prevent duplicate hub devices being re-created on reconnect; fix stale activity catalog on startup; gate verbose logging behind the debug logging setting"
   }
