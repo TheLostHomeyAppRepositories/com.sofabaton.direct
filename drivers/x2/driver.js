@@ -132,8 +132,8 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
       );
       const cfgs = args.device.getStoreValue('wifi_configs') || [];
       const idx = cfgs.findIndex(c => c.name.toLowerCase() === deviceName.toLowerCase());
-      if (idx !== -1) cfgs[idx] = { name: result.name, commands: commandNames };
-      else cfgs.push({ name: result.name, commands: commandNames });
+      if (idx !== -1) cfgs[idx] = { name: result.name, commands: commandNames, hubId: result.deviceId };
+      else cfgs.push({ name: result.name, commands: commandNames, hubId: result.deviceId });
       await args.device.setStoreValue('wifi_configs', cfgs);
       return { hub_device_id: result.deviceId, device_name: result.name };
     });
@@ -148,9 +148,18 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
       const device = args.device;
       if (!device?.sofaBaton) return [];
       const q = String(query || '').toLowerCase();
+      // Deduplicate by name — when the hub has two entries with the same name (e.g. from
+      // being created twice), prefer the one that has WiFi commands registered locally.
+      const seen = new Map();
+      for (const d of device.sofaBaton.devices.values()) {
+        const key = d.name.toLowerCase();
+        if (!seen.has(key) || device.sofaBaton._wifiDeviceCommands?.has(d.id)) {
+          seen.set(key, d);
+        }
+      }
       return [
         ANY_ENTRY('Any device'),
-        ...[...device.sofaBaton.devices.values()]
+        ...[...seen.values()]
           .filter(d => d.name.toLowerCase().includes(q))
           .map(d => ({ name: d.name, id: String(d.id) })),
       ];
@@ -165,12 +174,20 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
 
       let commands;
       if (sbDeviceId && sbDeviceId !== ANY_ID) {
-        const cmdMap = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId))
+        const irMap = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId));
+        const cmdMap = (irMap?.size > 0 ? irMap : null)
                     || device.sofaBaton._wifiDeviceCommands?.get(Number(sbDeviceId));
         commands = cmdMap ? [...cmdMap.values()] : [];
       } else {
+        // Only include WiFi commands for devices that have NO hub-side commands — otherwise
+        // they'd duplicate entries already in device.sofaBaton.commands (from REQ_COMMANDS).
         const wifiCmds = device.sofaBaton._wifiDeviceCommands
-          ? [...device.sofaBaton._wifiDeviceCommands.values()].flatMap(m => [...m.values()])
+          ? [...device.sofaBaton._wifiDeviceCommands.entries()]
+              .filter(([devId]) => {
+                const irMap = device.sofaBaton.commandsByDevice?.get(devId);
+                return !irMap || irMap.size === 0;
+              })
+              .flatMap(([, m]) => [...m.values()])
           : [];
         commands = [...device.sofaBaton.commands.values(), ...wifiCmds];
       }
@@ -187,12 +204,15 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
     });
 
     // Run listener: return true only if the event matches the user's filter selections.
-    // state is { device_id, key_id } set when the trigger fires in device.js.
+    // state is { device_id, key_id, device_name } set when the trigger fires in device.js.
     this.buttonTriggerCard.registerRunListener(async (args, state) => {
       const selectedDevice = args.sofabaton_device?.id;
       const selectedButton = args.button?.id;
       const devMatch = !selectedDevice || selectedDevice === ANY_ID ||
-        Number(selectedDevice) === Number(state.device_id);
+        Number(selectedDevice) === Number(state.device_id) ||
+        // Name fallback: hub can reassign IDs across restarts, but names are stable.
+        (state.device_name && args.sofabaton_device?.name &&
+         state.device_name.toLowerCase() === args.sofabaton_device.name.toLowerCase());
       const btnMatch = !selectedButton || selectedButton === ANY_ID ||
         Number(selectedButton) === Number(state.key_id);
       return devMatch && btnMatch;

@@ -106,7 +106,7 @@ async function load() {
 
     if (token) document.getElementById('token-inp').value = token;
   } catch (err) {
-    document.getElementById('hub-list').innerHTML = '<div class="empty">Error: ' + esc(err.message) + '</div>';
+    document.getElementById('hub-list').innerHTML = '<div class="empty">Could not load hub data — check device settings</div>';
   }
 }
 
@@ -160,8 +160,8 @@ document.getElementById('save-token-btn').addEventListener('click', async functi
     await Homey.set('homey_local_token', tok);
     msg.textContent = 'Saved!';
     setTimeout(function() { msg.textContent = ''; }, 3000);
-  } catch (err) {
-    msg.textContent = 'Error: ' + err.message;
+  } catch (_) {
+    msg.textContent = 'Save failed — please try again';
   } finally {
     btn.disabled = false;
   }
@@ -241,8 +241,8 @@ document.getElementById('create-btn').addEventListener('click', async function()
         }
       } catch (_) {}
     }, 1000);
-  } catch (err) {
-    msg.textContent = 'Error: ' + err.message;
+  } catch (_) {
+    msg.textContent = 'Creation failed — check hub connection and try again';
     btn.disabled = false;
   }
 });
