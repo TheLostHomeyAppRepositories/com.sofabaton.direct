@@ -848,6 +848,53 @@ class SofaBatonClient {
     return { deviceId, name: deviceName, commands: cmds };
   }
 
+  // Add new commands to an existing WiFi device without recreating it.
+  // existingCount is the number of commands already on the device (used for slot numbering).
+  async addWifiDeviceCommands(deviceId, deviceName, existingCount, newCommandNames, callbackPort) {
+    if (!this.socket || !this.connected) throw new Error('SofaBaton X2 not connected');
+    if (!this.bannerMac) throw new Error('Hub MAC not yet received');
+    if (this._appSocket) throw new Error('SofaBaton app is connected — close it first');
+    const totalAfter = existingCount + newCommandNames.length;
+    if (totalAfter > 10) throw new Error(`Device would exceed 10-command limit (has ${existingCount}, adding ${newCommandNames.length})`);
+
+    const codeType    = 0x1C;
+    const id          = deviceId & 0xff;
+    const mac         = this.bannerMac;
+    const homeyIp     = localIPv4(this.ip);
+    const port        = Number(callbackPort) || BASE_HTTP_PORT;
+    const encodedName = encodeURIComponent(deviceName.toLowerCase());
+
+    this.options.dlog?.(`WiFi ADD_CMDS: "${deviceName}" id=${id} adding ${newCommandNames.length} from slot ${existingCount + 1}`);
+
+    for (let i = 0; i < newCommandNames.length; i++) {
+      const cmdIndex = existingCount + i;
+      const slot     = cmdIndex + 1;
+      const path     = `/launch/${mac}/wf/${encodedName}/${cmdIndex}/short`;
+      const ackP = this._waitForAck(0x0103, 5000);
+      this.socket.write(familyFrame(0x0E, this._buildDefineIpCmd(slot, id, newCommandNames[i], homeyIp, port, path)));
+      const ack = await ackP;
+      if (ack.payload[0] !== 0x00)
+        throw new Error(`DEFINE_IP_CMD slot ${slot} rejected (status ${ack.payload[0]})`);
+      this.options.dlog?.(`  Slot ${slot} "${newCommandNames[i]}" OK`);
+    }
+
+    { const p = this._waitForAck(0x0103, 5000); this.socket.write(familyFrame(0x41, Buffer.from([id, 0x04]))); await p; }
+    { const p = this._waitForAck(0x0103, 5000); this.socket.write(familyFrame(0x46, Buffer.alloc(119, 0))); await p; }
+    { const p = this._waitForAck(0x0103, 5000); this.socket.write(familyFrame(0x08, this._buildCreateDevicePayload(deviceName, id, true, codeType))); await p; }
+    { const p = this._waitForAck(0x0103, 5000); this.socket.write(familyFrame(0x64, Buffer.alloc(0))); await p; }
+
+    try {
+      const p = this._waitForAck(0x0103, 3000);
+      this.socket.write(familyFrame(0x08, this._buildPublishFinalizePayload(id, deviceName, codeType)));
+      await p;
+    } catch (e) {
+      this.options.dlog?.(`  Publish-finalize skipped: ${e.message}`);
+    }
+
+    await this.refreshCatalog();
+    this.options.dlog?.(`WiFi ADD_CMDS done: id=${id}`);
+  }
+
   // Delete a WiFi device from the X2 hub by its hub device ID.
   async deleteWifiDevice(deviceId) {
     if (!this.socket || !this.connected) throw new Error('SofaBaton X2 not connected');
@@ -1516,10 +1563,25 @@ function renderDevices(){
     out+='<div class="card-sub">'+esc((w.commands||[]).join(', ')||'—')+' · '+wBindings.length+' control'+(wBindings.length!==1?'s':'')+'</div>';
     out+='</div></div>';
     out+='<div style="display:flex;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">';
+    out+='<button class="btn-x" onclick=\\'openEditDevice('+JSON.stringify(w.name)+','+JSON.stringify(w.commands||[])+')\\'>Edit</button>';
     out+='<button class="btn-x" onclick=\\'reRegisterDevice('+JSON.stringify(w.name)+','+JSON.stringify(w.commands)+')\\'>Fix</button>';
     out+='<button class="btn-warn" onclick=\\'deleteWifiDevice(event,'+JSON.stringify(w.name)+')\\'>Del</button>';
     out+='</div></div>';
     out+='<div id="wr-'+safeName+'" style="font-size:11px;color:#2e7d32;min-height:0;padding:0"></div>';
+    out+='<div id="edit-'+safeName+'" style="display:none;padding:10px;border-top:1px solid #f0f0f0;background:#fafafa">';
+    out+='<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">Existing commands (read-only)</div>';
+    out+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+    (w.commands||[]).forEach(function(cmd){ out+='<span style="background:#e8f0fe;color:#1a73e8;border-radius:12px;padding:2px 9px;font-size:12px">'+esc(cmd)+'</span>'; });
+    out+='</div>';
+    out+='<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:4px">New commands to add '+'<span style="font-weight:400;color:#999">(max '+(10-(w.commands||[]).length)+' more)</span></div>';
+    out+='<div id="edit-rows-'+safeName+'"></div>';
+    out+='<button class="btn-x" style="margin-top:4px" onclick=\\'addEditCmd('+JSON.stringify(safeName)+','+JSON.stringify(w.name)+','+JSON.stringify(w.commands||[])+')\\'>+ Command</button>';
+    out+='<div style="display:flex;gap:6px;margin-top:10px">';
+    out+='<button id="edit-save-'+safeName+'" class="btn-add" onclick=\\'saveEditDevice('+JSON.stringify(safeName)+','+JSON.stringify(w.name)+','+JSON.stringify(w.commands||[])+')\\' disabled>Save</button>';
+    out+='<button class="btn-x" onclick=\\'closeEditDevice('+JSON.stringify(safeName)+')\\'>Cancel</button>';
+    out+='</div>';
+    out+='<div id="edit-status-'+safeName+'" style="font-size:12px;color:#555;margin-top:6px;min-height:16px"></div>';
+    out+='</div>';
     if(isExp){
       out+='<div class="dev-body">';
       if(wBindings.length){
@@ -1582,6 +1644,80 @@ function deleteWifiDevice(ev,name){
   _deleteArmed=null;
   fetch('/manage/wifi-device/'+encodeURIComponent(name),{method:'DELETE'})
   .then(function(){if(expandedDevice===name)expandedDevice=null;loadData();}).catch(function(e){btn.textContent='Error';});
+}
+function openEditDevice(name,existingCmds){
+  var safeName=name.replace(/[^a-z0-9]/gi,'_');
+  var panel=document.getElementById('edit-'+safeName);
+  if(!panel)return;
+  // Reset state
+  var rowsEl=document.getElementById('edit-rows-'+safeName);
+  if(rowsEl) rowsEl.innerHTML='';
+  var saveBtn=document.getElementById('edit-save-'+safeName);
+  if(saveBtn) saveBtn.disabled=true;
+  var statusEl=document.getElementById('edit-status-'+safeName);
+  if(statusEl) statusEl.textContent='';
+  panel.style.display='block';
+}
+function closeEditDevice(safeName){
+  var panel=document.getElementById('edit-'+safeName);
+  if(panel) panel.style.display='none';
+}
+function addEditCmd(safeName,devName,existingCmds){
+  var rowsEl=document.getElementById('edit-rows-'+safeName);
+  if(!rowsEl) return;
+  var currentRows=rowsEl.querySelectorAll('input[type=text]');
+  if(currentRows.length+(existingCmds.length)>=10) return;
+  var row=document.createElement('div');
+  row.style.cssText='display:flex;gap:6px;margin-bottom:4px';
+  var inp=document.createElement('input');inp.type='text';
+  inp.placeholder='Command name (e.g. Scene On)';inp.maxLength=29;
+  inp.style.cssText='flex:1;padding:6px;border:1px solid #ddd;border-radius:5px;font-size:13px';
+  inp.addEventListener('input',function(){
+    var saveBtn=document.getElementById('edit-save-'+safeName);
+    if(!saveBtn) return;
+    var hasValue=[].some.call(rowsEl.querySelectorAll('input[type=text]'),function(i){return i.value.trim();});
+    saveBtn.disabled=!hasValue;
+  });
+  var rmBtn=document.createElement('button');rmBtn.className='btn-x';rmBtn.textContent='×';
+  rmBtn.onclick=function(){
+    row.remove();
+    var saveBtn=document.getElementById('edit-save-'+safeName);
+    if(saveBtn){
+      var hasValue=[].some.call(rowsEl.querySelectorAll('input[type=text]'),function(i){return i.value.trim();});
+      saveBtn.disabled=!hasValue;
+    }
+  };
+  row.appendChild(inp);row.appendChild(rmBtn);
+  rowsEl.appendChild(row);
+  inp.focus();
+}
+function saveEditDevice(safeName,devName,existingCmds){
+  var rowsEl=document.getElementById('edit-rows-'+safeName);
+  var statusEl=document.getElementById('edit-status-'+safeName);
+  var saveBtn=document.getElementById('edit-save-'+safeName);
+  if(!rowsEl||!statusEl||!saveBtn) return;
+  var newCmds=[].map.call(rowsEl.querySelectorAll('input[type=text]'),function(i){return i.value.trim();}).filter(Boolean);
+  if(!newCmds.length){statusEl.textContent='Enter at least one command name.';return;}
+  saveBtn.disabled=true;
+  statusEl.textContent='Adding commands…';
+  fetch('/manage/wifi-device-add-cmds',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:devName,newCommands:newCmds})})
+  .then(function(r){return r.json();})
+  .then(function(r){
+    if(r.ok){
+      statusEl.style.color='#2e7d32';
+      statusEl.textContent='✓ Added '+newCmds.length+' command'+(newCmds.length!==1?'s':'')+'!';
+      setTimeout(function(){closeEditDevice(safeName);loadData();},1500);
+    } else {
+      statusEl.style.color='#c62828';
+      statusEl.textContent='✗ '+r.error;
+      saveBtn.disabled=false;
+    }
+  })
+  .catch(function(e){
+    statusEl.style.color='#c62828';
+    statusEl.textContent='✗ '+e.message;
+    saveBtn.disabled=false;
+  });
 }
 function addCmd(){
   var rows=document.querySelectorAll('#cmd-list .cmd-row');
@@ -3034,6 +3170,34 @@ class SofaBatonDevice extends Homey.Device {
           this.sofaBaton._wifiDeviceCommands?.delete(hubId);
           sendJson(res, { ok: true });
         } catch(e) { sendJson(res, { ok: false, error: e.message }); }
+        return;
+      }
+      if (req.method === 'POST' && urlPath === '/manage/wifi-device-add-cmds') {
+        let body = '';
+        req.on('data', c => { body += c; });
+        req.on('end', async () => {
+          try {
+            const { name, newCommands } = JSON.parse(body);
+            if (!Array.isArray(newCommands) || !newCommands.length) throw new Error('newCommands must be a non-empty array');
+            if (!this.sofaBaton?.connected) throw new Error('Hub not connected');
+            const cfgs = this.getStoreValue('wifi_configs') || [];
+            const cfg  = cfgs.find(c => c.name.toLowerCase() === name.toLowerCase());
+            if (!cfg) throw new Error(`WiFi device "${name}" not found in local config`);
+            const hubId       = Number(cfg.hubId);
+            const existingCmds = cfg.commands || [];
+            const totalAfter  = existingCmds.length + newCommands.length;
+            if (totalAfter > 10) throw new Error(`Would exceed 10-command limit (has ${existingCmds.length}, adding ${newCommands.length})`);
+            await this.sofaBaton.addWifiDeviceCommands(
+              hubId, cfg.name, existingCmds.length, newCommands, this._callbackPort,
+            );
+            const updatedCmds = [...existingCmds, ...newCommands];
+            cfg.commands = updatedCmds;
+            await this.setStoreValue('wifi_configs', cfgs);
+            // Refresh local WiFi maps so autocomplete and trigger matching pick up new commands
+            await this._restoreWifiDevices();
+            sendJson(res, { ok: true, commands: updatedCmds });
+          } catch(e) { sendJson(res, { ok: false, error: e.message }); }
+        });
         return;
       }
       if (req.method === 'POST' && urlPath === '/manage/wifi-device/re-register') {

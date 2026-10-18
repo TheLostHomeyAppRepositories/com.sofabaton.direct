@@ -50,6 +50,9 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
+  "0.2.152": {
+    "en": "Add commands to an existing WiFi device without recreating it — use the new Edit button on each device card in Manage page"
+  },
   "0.2.151": {
     "en": "Add button press events (MQTT and HTTP) and trigger outcome to the debug log buffer so they appear in the Manage page Logs tab when debug logging is enabled"
   },
