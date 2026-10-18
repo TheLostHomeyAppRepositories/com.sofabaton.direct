@@ -563,8 +563,12 @@ class SofaBatonClient {
       if (data && typeof data === 'object') {
         const deviceId = Number(data.device_id ?? data.deviceId ?? data.device ?? data.id);
         const keyId    = Number(data.key_id   ?? data.keyId   ?? data.key   ?? data.command_id);
-        if (Number.isFinite(deviceId) && Number.isFinite(keyId))
+        if (Number.isFinite(deviceId) && Number.isFinite(keyId)) {
+          this.options.dlog?.(`MQTT /up: device_id=${deviceId} key_id=${keyId}`);
           this.onButtonPress({ device_id: deviceId, key_id: keyId });
+        } else {
+          this.options.dlog?.(`MQTT /up: unparseable payload — ${JSON.stringify(data).slice(0, 120)}`);
+        }
       }
     }
   }
@@ -3226,17 +3230,14 @@ class SofaBatonDevice extends Homey.Device {
         }
 
         if (command) {
-          this.homey.log(
-            `HTTP callback: device=${deviceId}(${deviceEntry?.name}) ` +
-            `cmd_idx=${cmdIndex} "${command.label}" [${pressType}]`
-          );
+          this._dlog(`HTTP callback: device=${deviceId}(${deviceEntry?.name}) cmd_idx=${cmdIndex} "${command.label}" [${pressType}]`);
           this.handleButtonPress({
             device_id: deviceId,
             key_id:    command.id,
             press_type: pressType,
           });
         } else {
-          this.homey.log(`HTTP callback: unknown device=${deviceId} cmd_idx=${cmdIndex}`);
+          this._dlog(`HTTP callback: unknown device=${deviceId} cmd_idx=${cmdIndex} — not in wifiCmds or catalog`);
         }
 
         sendReply(200, 'OK');
@@ -3330,7 +3331,7 @@ class SofaBatonDevice extends Homey.Device {
     const resolvedDevName = deviceName || `Device ${event.device_id}`;
     this._lastButtonPress = { keyId: event.key_id, sofaDeviceId: event.device_id, button, rawLabel, deviceName: resolvedDevName };
     const eventDevName = resolvedDevName.toLowerCase();
-    this.homey.log(`Button: key=${event.key_id} dev=${event.device_id}(${eventDevName}) bindings=${this._bindings.size}`);
+    this._dlog(`BUTTON: key=${event.key_id} dev=${event.device_id}("${resolvedDevName}") label="${rawLabel}" wifiCmd=${!!wifiCmd}`);
     // Match bindings by name OR numeric ID so bindings survive hub restarts
     // (hub can reassign device IDs, but names are stable).
     for (const b of this._bindings.values()) {
@@ -3354,7 +3355,7 @@ class SofaBatonDevice extends Homey.Device {
       },
       { device_id: event.device_id, key_id: event.key_id, device_name: resolvedDevName }  // state for run listener
     ).then(() => {
-      this.homey.log(`Button trigger fired: dev=${event.device_id} key=${event.key_id} btn="${button}"`);
+      this._dlog(`TRIGGER fired: dev=${event.device_id} key=${event.key_id} btn="${button}"`);
     }).catch(e => {
       this.homey.error(`Button trigger error: ${e.message}`);
       this._dlog(`TRIGGER ERROR: ${e.message}`);
