@@ -50,6 +50,9 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
+  "0.2.150": {
+    "en": "Fix Flow button filter not matching WiFi device buttons (autocomplete was showing IR/RF catalog command IDs instead of WiFi indices); increase catalog fetch timeouts to fix incomplete activity and command counts on hubs with many devices"
+  },
   "0.2.149": {
     "en": "Fix crash (TypeError: Assignment to constant variable) when a WiFi device button fires via the name-based callback URL and the device is not yet locally registered"
   },

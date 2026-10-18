@@ -591,17 +591,17 @@ class SofaBatonClient {
     this._commandPageStream.clear();
     this._rawCommandDump.clear();
 
-    await this.request(OP.REQ_ACTIVITIES, Buffer.alloc(0), 700);
-    await this.request(OP.REQ_DEVICES, Buffer.alloc(0), 700);
+    await this.request(OP.REQ_ACTIVITIES, Buffer.alloc(0), 2000);
+    await this.request(OP.REQ_DEVICES, Buffer.alloc(0), 2000);
 
     for (const id of this.devices.keys()) {
       this.pendingCommandDeviceId = id;
       this._commandPageStream.set(id, Buffer.alloc(0));
-      await this.request(OP.REQ_COMMANDS, Buffer.from([id & 0xff, 0xff]), 900);
+      await this.request(OP.REQ_COMMANDS, Buffer.from([id & 0xff, 0xff]), 2500);
     }
 
     this.pendingCommandDeviceId = null;
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1500));
     this._finalizeCommands();
 
     this._catalogRefreshInProgress = false;

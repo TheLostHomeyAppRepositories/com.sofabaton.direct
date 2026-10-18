@@ -174,20 +174,18 @@ module.exports = class SofaBatonDriver extends Homey.Driver {
 
       let commands;
       if (sbDeviceId && sbDeviceId !== ANY_ID) {
-        const irMap = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId));
-        const cmdMap = (irMap?.size > 0 ? irMap : null)
-                    || device.sofaBaton._wifiDeviceCommands?.get(Number(sbDeviceId));
+        // WiFi commands take precedence — their key_ids are local indices (0,1,2…)
+        // which must match what the HTTP callback fires. Catalog IR/RF command IDs
+        // are hub-assigned integers that would never match a WiFi key_id.
+        const wifiCmds = device.sofaBaton._wifiDeviceCommands?.get(Number(sbDeviceId));
+        const irMap    = device.sofaBaton.commandsByDevice?.get(Number(sbDeviceId));
+        const cmdMap   = wifiCmds || (irMap?.size > 0 ? irMap : null);
         commands = cmdMap ? [...cmdMap.values()] : [];
       } else {
-        // Only include WiFi commands for devices that have NO hub-side commands — otherwise
-        // they'd duplicate entries already in device.sofaBaton.commands (from REQ_COMMANDS).
+        // Include all WiFi commands regardless of whether the device also has catalog
+        // commands — the two sets use different ID spaces and must not be conflated.
         const wifiCmds = device.sofaBaton._wifiDeviceCommands
-          ? [...device.sofaBaton._wifiDeviceCommands.entries()]
-              .filter(([devId]) => {
-                const irMap = device.sofaBaton.commandsByDevice?.get(devId);
-                return !irMap || irMap.size === 0;
-              })
-              .flatMap(([, m]) => [...m.values()])
+          ? [...device.sofaBaton._wifiDeviceCommands.values()].flatMap(m => [...m.values()])
           : [];
         commands = [...device.sofaBaton.commands.values(), ...wifiCmds];
       }
