@@ -941,6 +941,7 @@ class SofaBatonClient {
     }
     if (!boundPort) { try { udp.close(); } catch {} return; }
     udp.setBroadcast(true);
+    udp.on('error', e => this.homey.error(`PROXY UDP error: ${e.message}`));
     this._proxyUdp     = udp;
     this._proxyUdpPort = boundPort;
     this._mdnsService  = true;
@@ -993,6 +994,7 @@ class SofaBatonClient {
     }
     if (!boundPort) { try { udp.close(); } catch {} throw new Error('PROXY: no UDP port available'); }
     udp.setBroadcast(true);
+    udp.on('error', e => this.homey.error(`PROXY UDP error: ${e.message}`));
     this._proxyUdp     = udp;
     this._proxyUdpPort = boundPort;
 
@@ -2562,6 +2564,9 @@ class SofaBatonDevice extends Homey.Device {
   // Response MUST be HTTP/1.1 with non-empty body + Connection:close to avoid the hub's retry storm.
   async _startHttpServer() {
     this._httpServer = http.createServer(async (req, res) => {
+      // Absorb client-disconnect errors so a browser closing mid-request doesn't
+      // produce an unhandled 'error' event (ECONNRESET) on the request stream.
+      req.on('error', () => { try { res.destroy(); } catch {} });
       const sendReply = (status, body) => {
         const bodyBuf = Buffer.from(body);
         res.writeHead(status, {
@@ -3422,6 +3427,8 @@ class SofaBatonDevice extends Homey.Device {
         this._callbackPort = p;
         this._callbackBaseUrl = `http://${hostIp}:${p}/launch`;
         this.homey.log(`SofaBaton HTTP callback server: ${this._callbackBaseUrl}`);
+        // Permanent handler so server-level errors after startup don't crash the process.
+        this._httpServer.on('error', e => this.homey.error(`HTTP server error: ${e.message}`));
         break;
       } catch (e) {
         if (p === BASE_HTTP_PORT + 39)

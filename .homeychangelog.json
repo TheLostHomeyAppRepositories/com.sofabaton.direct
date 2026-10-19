@@ -50,6 +50,9 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
+  "0.2.154": {
+    "en": "Fix ECONNRESET crash: add request error handler so browser closing the Manage page mid-request no longer crashes the app; add permanent error handlers on the HTTP server and proxy UDP sockets"
+  },
   "0.2.153": {
     "en": "Add 'The current activity was stopped' Flow trigger — fires when the X2 OFF button or app stops the active activity; tokens carry the stopped activity name and ID"
   },
