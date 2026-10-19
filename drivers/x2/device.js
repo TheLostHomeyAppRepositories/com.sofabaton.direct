@@ -2323,8 +2323,9 @@ class SofaBatonDevice extends Homey.Device {
     if (!ip) throw new Error('No SofaBaton IP configured');
 
     // Flow trigger cards
-    this.buttonTrigger   = this.homey.flow.getDeviceTriggerCard('button_pressed');
-    this.activityTrigger = this.homey.flow.getDeviceTriggerCard('activity_changed');
+    this.buttonTrigger          = this.homey.flow.getDeviceTriggerCard('button_pressed');
+    this.activityTrigger        = this.homey.flow.getDeviceTriggerCard('activity_changed');
+    this.activityStoppedTrigger = this.homey.flow.getDeviceTriggerCard('activity_stopped');
 
     // HTTP callback server — receives X2 WiFi-device button events
     this.homey.log('onInit: starting HTTP server');
@@ -3466,6 +3467,15 @@ class SofaBatonDevice extends Homey.Device {
       { activity_name: name, activity_id: id, previous_activity_id: previous },
       { activity_id: id }
     ).catch(e => this.homey.error(`Activity trigger error: ${e.message}`));
+    // Fire the dedicated "stopped" trigger when the hub reports id=0 (no active activity).
+    if (id === 0 && previous != null && previous !== 0) {
+      const prevName = this.sofaBaton?.activities?.get(Number(previous))?.name || `Activity ${previous}`;
+      this._dlog(`ACTIVITY_STOPPED: previous="${prevName}" (id=${previous})`);
+      this.activityStoppedTrigger.trigger(
+        this,
+        { stopped_activity_name: prevName, stopped_activity_id: Number(previous) },
+      ).catch(e => this.homey.error(`Activity stopped trigger error: ${e.message}`));
+    }
   }
 
   async handleButtonPress(event) {

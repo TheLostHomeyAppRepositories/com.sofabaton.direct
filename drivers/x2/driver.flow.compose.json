@@ -52,6 +52,22 @@
       ]
     },
     {
+      "id": "activity_stopped",
+      "title": {
+        "en": "The current activity was stopped"
+      },
+      "titleFormatted": {
+        "en": "The current activity was stopped"
+      },
+      "hint": {
+        "en": "Fires when the active SofaBaton activity is stopped — for example by pressing the OFF button on the X2 remote. Requires MQTT. Tokens carry the name and ID of the activity that was running."
+      },
+      "tokens": [
+        { "name": "stopped_activity_name", "type": "string", "title": { "en": "Stopped activity" } },
+        { "name": "stopped_activity_id",   "type": "number", "title": { "en": "Stopped activity ID" } }
+      ]
+    },
+    {
       "id": "activity_changed",
       "title": {
         "en": "The active activity changed"
