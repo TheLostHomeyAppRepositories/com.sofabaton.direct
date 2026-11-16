@@ -985,7 +985,20 @@ class SofaBatonClient {
 
 
   async _startProxy() {
-    if (this._proxyUdp) return;
+    if (this._proxyUdp) {
+      // Early proxy already running — re-announce now that we have the live banner
+      // payload (AVER, HVER, NO) so the SofaBaton app gets the full TXT immediately.
+      if (this._mdnsSock && this._cachedBannerPayload) {
+        const hostIp = localIPv4(this.ip);
+        const mac    = this.bannerMac || '000000';
+        const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
+        const name   = `${prefix}-${mac.slice(-6).toLowerCase()}`;
+        const pkt    = this._buildMdnsPacket(name, hostIp, this._proxyUdpPort);
+        this._mdnsSock.send(pkt, 0, pkt.length, 5353, '224.0.0.251', () => {});
+        this.homey.log('PROXY: re-announced with banner TXT (AVER/HVER/NO)');
+      }
+      return;
+    }
 
     const hostIp = localIPv4(this.ip);
 
