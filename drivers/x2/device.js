@@ -1030,6 +1030,18 @@ class SofaBatonClient {
     this.homey.log(`PROXY: UDP :${boundPort} listening, mDNS raw announce → ${hostIp}`);
   }
 
+  _buildTxtFromBanner() {
+    const p = this._cachedBannerPayload;
+    if (!p || p.length < 13) return null;
+    const mac  = p.subarray(0, 6).toString('hex').toUpperCase();
+    const hver = p.readUInt16BE(6);
+    // Bytes 8-11 encode the production date as packed BCD (e.g. 0x20 0x22 0x11 0x20 → "20221120")
+    const no   = [p[8], p[9], p[10], p[11]].map(b => `${b >> 4}${b & 0xf}`).join('');
+    const aver = p[12];
+    const name = this._bannerOpcode === 0x1D02 ? 'X1S HUB' : 'X2 HUB';
+    return [`NAME=${name}`, `MAC=${mac}`, `AVER=${aver}`, `HVER=${hver}`, `NO=${no}`];
+  }
+
   _buildMdnsPacket(instanceName, hostIp, port) {
     // Encode a DNS name as length-prefixed labels + trailing null
     function encName(name) {
@@ -1048,14 +1060,14 @@ class SofaBatonClient {
 
     const ipBytes = Buffer.from(hostIp.split('.').map(Number));
 
-    // TXT rdata: use hub's own TXT records if captured, otherwise basic fallback
+    // TXT rdata: captured mDNS > banner extraction > stub fallback
     const txtStrings = (this._hubTxtRecords && this._hubTxtRecords.length > 0)
       ? this._hubTxtRecords
-      : [
+      : (this._buildTxtFromBanner() || [
           `NAME=${instanceName}`,
           `MAC=${this.bannerMac || ''}`,
           `HA_PROXY=1`,
-        ];
+        ]);
     const txtRdata = Buffer.concat(txtStrings.map(s => {
       const b = Buffer.from(s, 'utf8'); return Buffer.concat([Buffer.from([b.length]), b]);
     }));
@@ -2473,6 +2485,7 @@ class SofaBatonDevice extends Homey.Device {
       onBannerMac: mac => {
         this.setStoreValue('banner_mac', mac).catch(() => {});
         this.setStoreValue('banner_opcode', this.sofaBaton._bannerOpcode || 0).catch(() => {});
+        this.setStoreValue('banner_payload', this.sofaBaton._cachedBannerPayload?.toString('hex') || '').catch(() => {});
       },
       dlog: msg => this._dlog(msg),
     });
@@ -2510,11 +2523,13 @@ class SofaBatonDevice extends Homey.Device {
 
     // Start mDNS proxy immediately using cached MAC so the SofaBaton app
     // always hits the proxy — even before Homey connects to the hub.
-    const cachedMac    = await Promise.resolve(this.getStoreValue('banner_mac')).catch(() => null);
-    const cachedOpcode = await Promise.resolve(this.getStoreValue('banner_opcode')).catch(() => null);
+    const cachedMac     = await Promise.resolve(this.getStoreValue('banner_mac')).catch(() => null);
+    const cachedOpcode  = await Promise.resolve(this.getStoreValue('banner_opcode')).catch(() => null);
+    const cachedPayload = await Promise.resolve(this.getStoreValue('banner_payload')).catch(() => null);
     if (cachedMac) {
-      this.sofaBaton.bannerMac      = cachedMac;
-      this.sofaBaton._bannerOpcode  = cachedOpcode || null;
+      this.sofaBaton.bannerMac            = cachedMac;
+      this.sofaBaton._bannerOpcode        = cachedOpcode || null;
+      if (cachedPayload) this.sofaBaton._cachedBannerPayload = Buffer.from(cachedPayload, 'hex');
       this.sofaBaton._startProxyWithMac(cachedMac).catch(e =>
         this.homey.error('Early proxy start error:', e.message));
     }
@@ -2676,6 +2691,7 @@ class SofaBatonDevice extends Homey.Device {
       onBannerMac: mac => {
         this.setStoreValue('banner_mac', mac).catch(() => {});
         this.setStoreValue('banner_opcode', this.sofaBaton._bannerOpcode || 0).catch(() => {});
+        this.setStoreValue('banner_payload', this.sofaBaton._cachedBannerPayload?.toString('hex') || '').catch(() => {});
       },
     });
     this._connectWithRetry();
