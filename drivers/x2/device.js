@@ -991,7 +991,8 @@ class SofaBatonClient {
       if (this._mdnsSock && this._cachedBannerPayload) {
         const hostIp = localIPv4(this.ip);
         const mac    = this.bannerMac || '000000';
-        const name   = `X1-HUB-${mac.slice(-6).toLowerCase()}`;
+        const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
+        const name   = `${prefix}-${mac.slice(-6).toLowerCase()}`;
         const pkt    = this._buildMdnsPacket(name, hostIp, this._proxyUdpPort);
         this._mdnsSock.send(pkt, 0, pkt.length, 5353, '224.0.0.251', () => {});
         this.homey.log('PROXY: re-announced with banner TXT (AVER/HVER/NO)');
@@ -1116,13 +1117,11 @@ class SofaBatonClient {
   }
 
   _startMdnsAnnounce(hostIp) {
-    // Always use X1-HUB prefix — this matches what the real hub announces in mDNS
-    // regardless of model (X2 firmware uses X1-HUB-… with NAME=X2 HUB in TXT).
-    // The NAME TXT field determines model; the instance prefix is just legacy naming.
-    // Using the same prefix as the real hub makes our cache-flush A record override
-    // the hub's cached IP so the app connects to the proxy automatically.
+    // X2-HUB prefix is required for RF to appear in the SofaBaton app — the app gates
+    // RF (and presumably other X2 features) on the instance prefix, not on NAME in TXT.
+    // X1S uses X1-HUB. Unknown opcode defaults to X2-HUB.
     const mac = this.bannerMac || '000000';
-    const prefix = 'X1-HUB';
+    const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
     const instanceName = `${prefix}-${mac.slice(-6).toLowerCase()}`;
     const port = this._proxyUdpPort;
 
@@ -1197,7 +1196,8 @@ class SofaBatonClient {
           if (first && this._mdnsSock && this._proxyUdpPort) {
             const hostIp = localIPv4(this.ip);
             const mac    = this.bannerMac || '000000';
-            const name   = `X1-HUB-${mac.slice(-6).toLowerCase()}`;
+            const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
+            const name   = `${prefix}-${mac.slice(-6).toLowerCase()}`;
             const pkt    = this._buildMdnsPacket(name, hostIp, this._proxyUdpPort);
             this._mdnsSock.send(pkt, 0, pkt.length, 5353, '224.0.0.251', () => {});
           }
