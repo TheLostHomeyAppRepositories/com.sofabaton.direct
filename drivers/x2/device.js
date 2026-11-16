@@ -316,6 +316,8 @@ class SofaBatonClient {
     this._mdnsService       = null; // true once raw-multicast mDNS announce is running
     this._mdnsTimer         = null;
     this._mdnsSock          = null;
+    this._mdnsCaptureSocket = null; // passive listener for hub's TXT records
+    this._hubTxtRecords     = null; // TXT strings captured from hub's own mDNS announce
     this._cachedBannerPayload = null;
     this._bannerOpcode      = null; // actual opcode from hub (e.g. 0x1502 or 0x1D02)
   }
@@ -976,6 +978,7 @@ class SofaBatonClient {
       // If not connected yet, discard — app will retry in ~5s when its CALL_ME times out
     });
 
+    this._startMdnsCapture();
     this._startMdnsAnnounce(hostIp);
     this.homey.log(`PROXY(early): mDNS → ${hostIp}, udp :${boundPort}, mac=${mac}`);
   }
@@ -1021,6 +1024,7 @@ class SofaBatonClient {
     });
 
     this._mdnsService = true; // flag — advertisement runs via raw multicast below
+    this._startMdnsCapture();
     this._startMdnsAnnounce(hostIp);
 
     this.homey.log(`PROXY: UDP :${boundPort} listening, mDNS raw announce → ${hostIp}`);
@@ -1044,12 +1048,14 @@ class SofaBatonClient {
 
     const ipBytes = Buffer.from(hostIp.split('.').map(Number));
 
-    // TXT rdata: each string is length-prefixed
-    const txtStrings = [
-      `NAME=${instanceName}`,
-      `MAC=${this.bannerMac || ''}`,
-      `HA_PROXY=1`,
-    ];
+    // TXT rdata: use hub's own TXT records if captured, otherwise basic fallback
+    const txtStrings = (this._hubTxtRecords && this._hubTxtRecords.length > 0)
+      ? this._hubTxtRecords
+      : [
+          `NAME=${instanceName}`,
+          `MAC=${this.bannerMac || ''}`,
+          `HA_PROXY=1`,
+        ];
     const txtRdata = Buffer.concat(txtStrings.map(s => {
       const b = Buffer.from(s, 'utf8'); return Buffer.concat([Buffer.from([b.length]), b]);
     }));
@@ -1126,6 +1132,77 @@ class SofaBatonClient {
     });
   }
 
+  // Passively listen for the real hub's mDNS announcements and cache its TXT records.
+  // This lets us relay AVER, HVER, NO, and NAME verbatim so the SofaBaton app sees
+  // the same capability flags it would see when talking directly to the hub.
+  _startMdnsCapture() {
+    if (this._mdnsCaptureSocket) return;
+    try {
+      const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      sock.on('error', () => {}); // non-critical optimisation — silence failures
+      sock.bind(5353, () => {
+        try { sock.addMembership('224.0.0.251'); } catch {}
+      });
+      sock.on('message', msg => {
+        const txt = this._parseMdnsTxtRecords(msg);
+        if (txt) {
+          this._hubTxtRecords = txt;
+          this.homey.log(`PROXY: captured hub TXT: ${txt.join(', ')}`);
+        }
+      });
+      this._mdnsCaptureSocket = sock;
+    } catch (e) {
+      this.homey.error(`PROXY: mDNS capture setup failed: ${e.message}`);
+    }
+  }
+
+  _parseMdnsTxtRecords(msg) {
+    try {
+      if (msg.length < 12) return null;
+      if (!(msg[2] & 0x80)) return null; // QR=0 → query, skip
+      const qdCount = msg.readUInt16BE(4);
+      const anCount = msg.readUInt16BE(6);
+      const nsCount = msg.readUInt16BE(8);
+      const arCount = msg.readUInt16BE(10);
+      let pos = 12;
+      for (let i = 0; i < qdCount && pos < msg.length; i++) {
+        pos = this._skipDnsName(msg, pos);
+        pos += 4;
+      }
+      for (let i = 0; i < anCount + nsCount + arCount && pos < msg.length; i++) {
+        pos = this._skipDnsName(msg, pos);
+        if (pos + 10 > msg.length) break;
+        const type = msg.readUInt16BE(pos);
+        pos += 8; // type(2) + class(2) + ttl(4)
+        const rdlen = msg.readUInt16BE(pos); pos += 2;
+        if (pos + rdlen > msg.length) break;
+        if (type === 16) { // TXT
+          const strings = [];
+          let p = pos;
+          while (p < pos + rdlen) {
+            const len = msg[p++];
+            if (len === 0 || p + len > pos + rdlen) break;
+            strings.push(msg.slice(p, p + len).toString('utf8'));
+            p += len;
+          }
+          if (strings.some(s => /^(HVER|AVER)=/i.test(s))) return strings;
+        }
+        pos += rdlen;
+      }
+    } catch {}
+    return null;
+  }
+
+  _skipDnsName(msg, pos) {
+    while (pos < msg.length) {
+      const len = msg[pos];
+      if (len === 0) return pos + 1;
+      if ((len & 0xC0) === 0xC0) return pos + 2; // compression pointer
+      pos += 1 + len;
+    }
+    return pos;
+  }
+
   async _connectToApp(appIp, appPort) {
     if (this._appSocket) {
       try { this._appSocket.destroy(); } catch {}
@@ -1187,6 +1264,8 @@ class SofaBatonClient {
     this._mdnsService = null;
     if (this._mdnsTimer) { clearInterval(this._mdnsTimer); this._mdnsTimer = null; }
     if (this._mdnsSock) { try { this._mdnsSock.close(); } catch {} this._mdnsSock = null; }
+    if (this._mdnsCaptureSocket) { try { this._mdnsCaptureSocket.close(); } catch {} this._mdnsCaptureSocket = null; }
+    this._hubTxtRecords = null;
   }
 }
 
