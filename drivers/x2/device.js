@@ -1139,9 +1139,11 @@ class SofaBatonClient {
     if (this._mdnsCaptureSocket) return;
     try {
       const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-      sock.on('error', () => {}); // non-critical optimisation — silence failures
-      sock.bind(5353, () => {
-        try { sock.addMembership('224.0.0.251'); } catch {}
+      sock.on('error', e => this.homey.error(`PROXY mDNS capture: ${e.message}`));
+      sock.bind(5353, (err) => {
+        if (err) { this.homey.error(`PROXY mDNS capture bind failed: ${err.message}`); return; }
+        try { sock.addMembership('224.0.0.251'); this.homey.log('PROXY: mDNS capture joined 224.0.0.251'); }
+        catch (e) { this.homey.error(`PROXY mDNS capture multicast join failed: ${e.message}`); }
         // Send a PTR query for the SofaBaton service — hub responds immediately
         // with its full record set so we don't have to wait for a passive announce.
         try {
@@ -1154,10 +1156,14 @@ class SofaBatonClient {
           const qHdr = Buffer.from([0,0, 0,0, 0,1, 0,0, 0,0, 0,0]); // QR=0, QDCOUNT=1
           const qType = Buffer.from([0,12, 0,1]); // PTR IN
           const query = Buffer.concat([qHdr, qname, qType]);
-          sock.send(query, 0, query.length, 5353, '224.0.0.251', () => {});
-        } catch {}
+          sock.send(query, 0, query.length, 5353, '224.0.0.251', e => {
+            if (e) this.homey.error(`PROXY mDNS PTR query failed: ${e.message}`);
+            else this.homey.log('PROXY: mDNS PTR query sent');
+          });
+        } catch (e) { this.homey.error(`PROXY mDNS PTR query build failed: ${e.message}`); }
       });
-      sock.on('message', msg => {
+      sock.on('message', (msg, rinfo) => {
+        this.homey.log(`PROXY mDNS capture: ${msg.length}b from ${rinfo.address}`);
         const txt = this._parseMdnsTxtRecords(msg);
         if (txt) {
           const first = !this._hubTxtRecords;
