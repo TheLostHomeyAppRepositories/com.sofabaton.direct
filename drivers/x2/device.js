@@ -991,8 +991,7 @@ class SofaBatonClient {
       if (this._mdnsSock && this._cachedBannerPayload) {
         const hostIp = localIPv4(this.ip);
         const mac    = this.bannerMac || '000000';
-        const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
-        const name   = `${prefix}-${mac.slice(-6).toLowerCase()}`;
+        const name   = `X1-HUB-${mac.slice(-6).toLowerCase()}`;
         const pkt    = this._buildMdnsPacket(name, hostIp, this._proxyUdpPort);
         this._mdnsSock.send(pkt, 0, pkt.length, 5353, '224.0.0.251', () => {});
         this.homey.log('PROXY: re-announced with banner TXT (AVER/HVER/NO)');
@@ -1117,12 +1116,13 @@ class SofaBatonClient {
   }
 
   _startMdnsAnnounce(hostIp) {
-    // Match the hub's own mDNS instance name so our cache-flush A record
-    // overwrites the hub's cached IP with the proxy IP, and the SofaBaton app
-    // still sees the correct model (X2 vs X1S).
-    // 0x1502 = X2 firmware → "X2-HUB-…"; 0x1D02 = X1S → "X1-HUB-…"; unknown → assume X2.
+    // Always use X1-HUB prefix — this matches what the real hub announces in mDNS
+    // regardless of model (X2 firmware uses X1-HUB-… with NAME=X2 HUB in TXT).
+    // The NAME TXT field determines model; the instance prefix is just legacy naming.
+    // Using the same prefix as the real hub makes our cache-flush A record override
+    // the hub's cached IP so the app connects to the proxy automatically.
     const mac = this.bannerMac || '000000';
-    const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
+    const prefix = 'X1-HUB';
     const instanceName = `${prefix}-${mac.slice(-6).toLowerCase()}`;
     const port = this._proxyUdpPort;
 
@@ -1194,12 +1194,10 @@ class SofaBatonClient {
           const first = !this._hubTxtRecords;
           this._hubTxtRecords = txt;
           this.homey.log(`PROXY: captured hub TXT: ${txt.join(', ')}`);
-          // Re-announce immediately so the app picks up the full TXT on first capture
           if (first && this._mdnsSock && this._proxyUdpPort) {
             const hostIp = localIPv4(this.ip);
             const mac    = this.bannerMac || '000000';
-            const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
-            const name   = `${prefix}-${mac.slice(-6).toLowerCase()}`;
+            const name   = `X1-HUB-${mac.slice(-6).toLowerCase()}`;
             const pkt    = this._buildMdnsPacket(name, hostIp, this._proxyUdpPort);
             this._mdnsSock.send(pkt, 0, pkt.length, 5353, '224.0.0.251', () => {});
           }
