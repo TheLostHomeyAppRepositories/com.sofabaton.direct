@@ -50,6 +50,9 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
+  "0.2.157": {
+    "en": "Fix proxy not showing RF/Matter options: broaden banner detection to handle future firmware opcodes; default mDNS instance name to X2-HUB instead of X1-HUB for unrecognised banner types; log full banner payload to help diagnose capability mismatches"
+  },
   "0.2.156": {
     "en": "Fix 'activity stopped' trigger not firing (hub may send 255 or another sentinel instead of 0); fix Edit device save button showing grey instead of confirming success"
   },

@@ -411,17 +411,27 @@ class SofaBatonClient {
     const _ackHandler = this._ackWaiters.get(f.opcode);
     if (_ackHandler) { this._ackWaiters.delete(f.opcode); _ackHandler(f); return; }
 
-    if (f.opcode === 0x1D02 || f.opcode === 0x1502) { // 0x1502 = 21-byte banner (X2 firmware), 0x1D02 = 29-byte (X1S)
-      this.bannerMac = f.payload.subarray(0, 6).toString('hex').toUpperCase();
-      // Cache MAC so we can start proxy on next boot before hub connects
-      if (this.options.onBannerMac) this.options.onBannerMac(this.bannerMac);
-      this._bannerOpcode = f.opcode;
-      this._cachedBannerPayload = Buffer.from(f.payload);
-      this.homey.log(`SOFABATON: Banner MAC=${this.bannerMac}`);
-      if (this.options.mqtt?.host)
-        this.startMqtt().catch(e => this.homey.error(`MQTT start error: ${e.message}`));
-      this._startProxy().catch(e => this.homey.error(`PROXY start error: ${e.message}`));
-      return;
+    // Known banner opcodes: 0x1502 = X2 firmware (21-byte), 0x1D02 = X1S (29-byte).
+    // Also accept any unknown opcode whose payload starts with a 6-byte MAC-like value
+    // so a future firmware update that changes the opcode still gets captured.
+    const looksLikeBanner = f.payload.length >= 6 &&
+      !this.bannerMac &&                          // haven't seen a banner yet
+      (f.opcode === 0x1502 || f.opcode === 0x1D02 ||
+       (f.payload.length >= 20 && f.payload.length <= 64)); // plausible banner size range
+    if (looksLikeBanner) {
+      const mac = f.payload.subarray(0, 6).toString('hex').toUpperCase();
+      if (/^[0-9A-F]{12}$/.test(mac) && mac !== '000000000000') {
+        this.bannerMac = mac;
+        if (this.options.onBannerMac) this.options.onBannerMac(this.bannerMac);
+        this._bannerOpcode = f.opcode;
+        this._cachedBannerPayload = Buffer.from(f.payload);
+        const known = (f.opcode === 0x1502) ? 'X2' : (f.opcode === 0x1D02) ? 'X1S' : 'UNKNOWN';
+        this.homey.log(`SOFABATON: Banner opcode=0x${f.opcode.toString(16)} model=${known} MAC=${this.bannerMac} payload=${f.payload.toString('hex')}`);
+        if (this.options.mqtt?.host)
+          this.startMqtt().catch(e => this.homey.error(`MQTT start error: ${e.message}`));
+        this._startProxy().catch(e => this.homey.error(`PROXY start error: ${e.message}`));
+        return;
+      }
     }
     if (f.opcode === OP.ACK_READY) {
       this.options.dlog?.(`ACK_READY: payload=${f.payload.toString('hex')}`);
@@ -1079,9 +1089,9 @@ class SofaBatonClient {
     // Match the hub's own mDNS instance name so our cache-flush A record
     // overwrites the hub's cached IP with the proxy IP, and the SofaBaton app
     // still sees the correct model (X2 vs X1S).
-    // 0x1502 banner = X2 firmware → "X2-HUB-…"; 0x1D02 = X1S → "X1-HUB-…"
+    // 0x1502 = X2 firmware → "X2-HUB-…"; 0x1D02 = X1S → "X1-HUB-…"; unknown → assume X2.
     const mac = this.bannerMac || '000000';
-    const prefix = this._bannerOpcode === 0x1502 ? 'X2-HUB' : 'X1-HUB';
+    const prefix = this._bannerOpcode === 0x1D02 ? 'X1-HUB' : 'X2-HUB';
     const instanceName = `${prefix}-${mac.slice(-6).toLowerCase()}`;
     const port = this._proxyUdpPort;
 
