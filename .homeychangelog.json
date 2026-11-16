@@ -50,8 +50,8 @@
   "0.2.127": {
     "en": "Fix WiFi device buttons not appearing in Flow; fix delete from Hub Device List not persisting; fix crash guards on all connection callbacks"
   },
-  "0.2.159": {
-    "en": "Fix proxy missing Matter options in SofaBaton app: passively capture the real hub's mDNS TXT records (AVER, HVER, NAME, NO) and relay them verbatim; re-announce immediately on first capture so the app does not cache the stub TXT"
+  "0.2.160": {
+    "en": "Fix proxy missing Matter options: send active mDNS PTR query on startup so hub TXT records are captured immediately rather than waiting up to 60s for a passive announce"
   },
   "0.2.157": {
     "en": "Fix proxy not showing RF/Matter options: broaden banner detection to handle future firmware opcodes; default mDNS instance name to X2-HUB instead of X1-HUB for unrecognised banner types; log full banner payload to help diagnose capability mismatches"

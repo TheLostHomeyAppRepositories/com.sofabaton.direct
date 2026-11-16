@@ -1142,6 +1142,20 @@ class SofaBatonClient {
       sock.on('error', () => {}); // non-critical optimisation — silence failures
       sock.bind(5353, () => {
         try { sock.addMembership('224.0.0.251'); } catch {}
+        // Send a PTR query for the SofaBaton service — hub responds immediately
+        // with its full record set so we don't have to wait for a passive announce.
+        try {
+          const svcName = '_sofabaton_hub._udp.local';
+          const labels  = svcName.split('.');
+          const qname   = Buffer.concat([
+            ...labels.map(l => { const b = Buffer.from(l, 'utf8'); return Buffer.concat([Buffer.from([b.length]), b]); }),
+            Buffer.from([0]),
+          ]);
+          const qHdr = Buffer.from([0,0, 0,0, 0,1, 0,0, 0,0, 0,0]); // QR=0, QDCOUNT=1
+          const qType = Buffer.from([0,12, 0,1]); // PTR IN
+          const query = Buffer.concat([qHdr, qname, qType]);
+          sock.send(query, 0, query.length, 5353, '224.0.0.251', () => {});
+        } catch {}
       });
       sock.on('message', msg => {
         const txt = this._parseMdnsTxtRecords(msg);
